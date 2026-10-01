@@ -120,10 +120,20 @@ input,select,textarea{font:inherit;font-size:18px;min-height:54px;width:100%;bor
 textarea{min-height:110px;padding:10px 12px;font-size:14px;font-family:monospace}
 .upd{flex:none;display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--info-bg);color:var(--info);padding:8px 14px;font-weight:700}
 .upd .btn{width:auto;min-height:44px}
+#splash{position:fixed;inset:0;z-index:100;background:#1B5E3B;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;color:#fff;transition:opacity .35s ease}
+#splash.out{opacity:0;pointer-events:none}
+#splash .lg{width:176px;height:176px;animation:spIn .6s ease-out both}
+#splash .nm{font-size:30px;font-weight:700;animation:spIn .6s .15s ease-out both}
+#splash .ld{width:168px;height:6px;border-radius:3px;background:rgba(255,255,255,.25);overflow:hidden;opacity:0;animation:spShow .01s 1s forwards}
+#splash .ld i{display:block;height:100%;width:0;background:#fff;border-radius:3px;animation:spLoad .95s 1s ease-in-out forwards}
+@keyframes spIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+@keyframes spShow{to{opacity:1}}
+@keyframes spLoad{to{width:100%}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
 <body>
+<div id="splash" aria-hidden="true"><svg class="lg" viewBox="0 0 192 192"><rect x="20" y="52" width="152" height="88" rx="18" fill="#F2F5EE"/><circle cx="46" cy="96" r="8" fill="#1B5E3B"/><text x="112" y="119" text-anchor="middle" font-size="58" font-weight="700" font-family="Atkinson Hyperlegible,system-ui,sans-serif" fill="#1B5E3B">MG</text></svg><div class="nm">Mi Ganado</div><div class="ld"><i></i></div></div>
 <div id="main"></div>
 <div id="upd" class="upd" style="display:none" role="status"><span>Hay una versión nueva</span><button class="btn sm pri" data-a="doupd">Actualizar</button></div>
 <nav id="nav" aria-label="Menú principal"></nav>
@@ -131,6 +141,7 @@ textarea{min-height:110px;padding:10px 12px;font-size:14px;font-family:monospace
 (function(){
 'use strict';
 var SRC='<!DOCTYPE html>\n'+document.documentElement.outerHTML;
+setTimeout(function(){var sp=document.getElementById('splash');if(sp)sp.remove()},7000);
 var $=function(s,r){return (r||document).querySelector(s)};
 var $$=function(s,r){return Array.prototype.slice.call((r||document).querySelectorAll(s))};
 
@@ -638,26 +649,36 @@ function onInp(e){var t=e.target,h=t.getAttribute&&t.getAttribute('data-in');if(
 document.addEventListener('input',onInp);document.addEventListener('change',function(e){if(e.target.type==='file'||e.target.tagName==='SELECT')onInp(e)});
 
 /* ================= versión y actualizaciones ================= */
-var APP_VERSION='1.0.0';
-var SWREG=null;
-function showUpd(){var u=$('#upd');if(u)u.style.display='flex'}
-ACT.doupd=function(){if(SWREG&&SWREG.waiting)SWREG.waiting.postMessage('SKIP_WAITING');else location.reload()};
-ACT.chkupd=function(){if(!SWREG){toast('Abre la app desde su enlace para buscar actualizaciones');return}toast('Buscando…');
- SWREG.update().then(function(){setTimeout(function(){if(SWREG.waiting)showUpd();else toast('Ya tienes la última versión')},1500)}).catch(function(){toast('Sin conexión: no se pudo buscar')})};
+var APP_VERSION='1.1.0';
+var SWREG=null,UPD='sw';
+function showUpd(m){if(m)UPD=m;var u=$('#upd');if(u)u.style.display='flex'}
+function checkNew(manual){fetch('index.html?chk='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.text()}).then(function(t){
+ var m=t.match(/APP_VERSION='([0-9.]+)'/);if(m&&m[1]!==APP_VERSION)showUpd('html');else if(manual&&!(SWREG&&SWREG.waiting))toast('Ya tienes la última versión')}).catch(function(){if(manual)toast('Sin conexión: no se pudo buscar')})}
+ACT.doupd=function(){
+ if(UPD==='sw'&&SWREG&&SWREG.waiting){SWREG.waiting.postMessage('SKIP_WAITING');return}
+ if(UPD==='html'&&navigator.serviceWorker&&navigator.serviceWorker.controller){navigator.serviceWorker.controller.postMessage('REFRESH');setTimeout(function(){location.reload()},5000);return}
+ location.reload()};
+ACT.chkupd=function(){if(!SWREG){toast('Abre la app desde su enlace para buscar actualizaciones');return}toast('Buscando…');SWREG.update().catch(function(){});
+ setTimeout(function(){if(SWREG.waiting)showUpd('sw');else checkNew(true)},1500)};
 if('serviceWorker' in navigator&&(location.protocol==='https:'||location.hostname==='localhost'||location.hostname==='127.0.0.1')){
  var hadCtl=!!navigator.serviceWorker.controller,reloading=false;
  navigator.serviceWorker.register('sw.js').then(function(reg){SWREG=reg;
-  if(reg.waiting&&navigator.serviceWorker.controller)showUpd();
-  reg.addEventListener('updatefound',function(){var w=reg.installing;if(!w)return;w.addEventListener('statechange',function(){if(w.state==='installed'&&navigator.serviceWorker.controller)showUpd()})});
-  document.addEventListener('visibilitychange',function(){if(!document.hidden)reg.update().catch(function(){})})}).catch(function(){});
+  if(reg.waiting&&navigator.serviceWorker.controller)showUpd('sw');
+  reg.addEventListener('updatefound',function(){var w=reg.installing;if(!w)return;w.addEventListener('statechange',function(){if(w.state==='installed'&&navigator.serviceWorker.controller)showUpd('sw')})});
+  setTimeout(function(){checkNew()},4000);
+  document.addEventListener('visibilitychange',function(){if(!document.hidden){reg.update().catch(function(){});checkNew()}})}).catch(function(){});
  navigator.serviceWorker.addEventListener('controllerchange',function(){if(!hadCtl){hadCtl=true;return}if(reloading)return;reloading=true;location.reload()});
+ navigator.serviceWorker.addEventListener('message',function(e){if((e.data==='REFRESHED'||e.data==='REFRESH_FAIL')&&!reloading){reloading=true;location.reload()}});
 }
 
 /* ================= arranque ================= */
+function endSplash(){var sp=$('#splash');if(!sp)return;var wait=Math.max(0,2000-performance.now());
+ setTimeout(function(){sp.classList.add('out');setTimeout(function(){sp.remove()},420)},wait);
+ try{var lv=localStorage.getItem('mg-ver');if(lv&&lv!==APP_VERSION)setTimeout(function(){toast('App actualizada a la versión '+APP_VERSION)},wait+800);localStorage.setItem('mg-ver',APP_VERSION)}catch(e){}}
 try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}
 openDB(function(){kvGet('state',function(s){if(!s&&!idb){try{s=JSON.parse(localStorage.getItem('mi-ganado'))}catch(e){}}
  if(!idb){try{localStorage.setItem('mi-test','1');localStorage.removeItem('mi-test')}catch(e){NOSTORE=true}}
- S=migrate(s);loadPhotos(function(){render()})})});
+ S=migrate(s);loadPhotos(function(){render();endSplash()})})});
 })();
 </script>
 </body>

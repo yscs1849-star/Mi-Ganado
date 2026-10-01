@@ -1,6 +1,7 @@
 /* Mi Ganado - service worker
-   Para publicar una actualización: cambia VER aquí y APP_VERSION en index.html. */
-var VER = '1.0.0';
+   Si solo cambias index.html (y subes APP_VERSION), la app avisa sola.
+   Si cambias este archivo, sube VER también. */
+var VER = '1.1.0';
 var CACHE = 'mi-ganado-' + VER;
 var FONTS = 'mi-ganado-fuentes';
 var SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-180.png'];
@@ -17,7 +18,20 @@ self.addEventListener('install', function (e) {
 });
 
 self.addEventListener('message', function (e) {
-  if (e.data === 'SKIP_WAITING') self.skipWaiting();
+  if (e.data === 'SKIP_WAITING') { self.skipWaiting(); return; }
+  if (e.data === 'REFRESH') {
+    var src = e.source;
+    e.waitUntil(
+      caches.open(CACHE).then(function (c) {
+        return fetch(new Request('index.html', { cache: 'reload' })).then(function (r) {
+          if (!r.ok) throw new Error('fallo');
+          var r2 = r.clone();
+          return c.put('index.html', r).then(function () { return c.put('./', r2); });
+        });
+      }).then(function () { if (src) src.postMessage('REFRESHED'); })
+        .catch(function () { if (src) src.postMessage('REFRESH_FAIL'); })
+    );
+  }
 });
 
 self.addEventListener('activate', function (e) {
@@ -33,6 +47,10 @@ self.addEventListener('fetch', function (e) {
   if (r.method !== 'GET') return;
   var u = new URL(r.url);
   if (u.origin === location.origin) {
+    if (u.searchParams.has('chk')) {
+      e.respondWith(fetch(u.href, { cache: 'no-store' }).catch(function () { return new Response('', { status: 503 }); }));
+      return;
+    }
     e.respondWith(
       caches.match(r, { ignoreSearch: true }).then(function (m) {
         return m || fetch(r).catch(function () {
